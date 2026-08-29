@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mac Cleanup Archive"
+  short_description: "Help with Mac Cleanup Archive tasks"
+  default_prompt: "Use $mac-cleanup-archive to analyze disk usage, run a dry-run cleanup, and archive old files to the NAS with verification."
