@@ -55,7 +55,8 @@ Extra sections:
 - **Runtime caches** (`--no-runtime-cache` to skip): approved regenerable caches that
   can be held open by desktop apps or automation browsers: Chrome/Google cache,
   Claude ShipIt update cache, Camoufox cached runtime, Puppeteer browser cache,
-  bun install cache, and Homebrew download cache. Dry-run only lists them. Execute
+  bun install cache, Homebrew download cache, and Whisper `.pt` model files.
+  Dry-run only lists them. Execute
   mode first asks associated apps to quit via macOS, then sends TERM and, only if
   still running, KILL to the declared narrow process patterns. Use
   `--no-quit-cache-apps` to disable that app-quit step for a special run.
@@ -107,8 +108,11 @@ Extra sections:
   local deletion.
 - **Review findings** (`--no-review` to skip): report-only, never auto-deleted —
   orphaned app containers (low-confidence heuristic), Telegram postbox cache, iOS
-  device backups, Xcode Archives, CoreSimulator devices/runtimes, and Time Machine
-  local snapshots. Written to `review-*.lst` for manual action.
+  device backups, Xcode Archives, CoreSimulator devices/runtimes, Time Machine
+  local snapshots, and Codex desktop downloaded runtimes (`~/.cache/codex-runtimes`;
+  regenerable, but deleting them under a live Codex app can break the session, so
+  they stay manual: quit Codex fully, delete, it re-downloads on next launch).
+  Written to `review-*.lst` for manual action.
 
 Protected automatically: anything under a project root (dirs containing package.json/.git/
 pyproject.toml etc.), dotfiles and shell/agent configs (`AGENTS.md`, `.ssh`, `.env` …),

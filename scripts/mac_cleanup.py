@@ -130,6 +130,10 @@ RUNTIME_CACHE_TARGETS: List[RuntimeCacheTarget] = [
         HOME / "Library" / "Caches" / "Homebrew",
         "Homebrew download cache (regenerable)",
     ),
+    RuntimeCacheTarget(
+        HOME / ".cache" / "whisper",
+        "Whisper model files .pt (re-downloaded by openai-whisper on next use)",
+    ),
 ]
 
 MANAGED_CACHES: List[Tuple[str, List[str]]] = [
@@ -1343,6 +1347,17 @@ def collect_review_items(log_file: Optional[Path]) -> List[Dict]:
                     })
         except Exception as e:
             log(f"WARNING: tmutil snapshot listing failed: {e}", log_file)
+
+    # 6. Codex desktop app downloaded runtimes. Regenerable (the app re-downloads
+    #    on next launch) but deleting them under a running Codex app can break the
+    #    live session, and quitting Codex would kill the cleanup's own host
+    #    process -- so this stays report-only, never auto-deleted.
+    codex_rt = HOME / ".cache" / "codex-runtimes"
+    if codex_rt.is_dir():
+        items.append({
+            "kind": "codex-runtimes", "path": str(codex_rt), "size": dir_size(codex_rt),
+            "note": "quit the Codex app fully, then delete; it re-downloads on next launch",
+        })
 
     return items
 
