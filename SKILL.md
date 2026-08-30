@@ -45,13 +45,20 @@ All scripts: `python3 <script> --execute` to act; without it they only report.
 ## mac_cleanup.py sections
 
 Selective execution via flags: `--no-cache --no-app-cache --no-managed-cache --no-logs
---no-tasks --no-unread --no-large --no-dupes --no-other --no-repos --no-manuscripts
---no-repo-residue --no-modules --no-hf-incomplete --no-ollama --no-installers
---no-review`, plus `--ollama-idle-days N`, `--compress` to gzip archived copies and
-`--keep-nas-mounted`.
+--no-runtime-cache --no-tasks --no-unread --no-large --no-dupes --no-other --no-repos
+--no-manuscripts --no-repo-residue --no-modules --no-hf-incomplete --no-ollama
+--no-installers --no-review`, plus `--ollama-idle-days N`, `--compress` to gzip
+archived copies and `--keep-nas-mounted`.
 
 Extra sections:
 
+- **Runtime caches** (`--no-runtime-cache` to skip): approved regenerable caches that
+  can be held open by desktop apps or automation browsers: Chrome/Google cache,
+  Claude ShipIt update cache, Camoufox cached runtime, Puppeteer browser cache,
+  bun install cache, and Homebrew download cache. Dry-run only lists them. Execute
+  mode first asks associated apps to quit via macOS, then sends TERM and, only if
+  still running, KILL to the declared narrow process patterns. Use
+  `--no-quit-cache-apps` to disable that app-quit step for a special run.
 - **Merged repos** (`--no-repos` to skip): a git repo under `$HOME` (up to 3 levels, runtime
   dirs excluded) becomes a candidate only when ALL hold: a remote exists, working tree clean
   (incl. untracked), no stashes, no unpushed commits on any branch, every local branch merged
@@ -79,7 +86,6 @@ Extra sections:
   logs, Dropbox cache, Composer/nsurlsessiond caches, Android/Kite/Cacher caches,
   `/private/var/folders` temp, wget leftovers, `~/*.hprof` heap dumps, and Trash items
   (`~/.Trash` + external-volume `.Trashes`, NAS mount excluded) older than 14d.
-  Also in the 14d tier: bun install cache (`~/.bun/install/cache`).
   90d tier (rebuild-costly): Gradle caches, NuGet packages, Conan packages, iOS app
   `.ipa` archives. Files only, mtime-based; nothing younger than the tier is touched.
 - **Managed caches**: the tool-command list also covers uv, pnpm, pod, go, gem,
@@ -132,7 +138,10 @@ schema and setup on a new machine.
    configuration files.
 4. System logs under `/var/log`, `/Library/Logs` require sudo; without it, log the failures
    and continue.
-5. `archive_old_emails.py --execute` quits Mail, deletes Envelope Index files, and requires
+5. Runtime-cache execute mode is authorized to quit only the cache-associated apps
+   declared in `RUNTIME_CACHE_TARGETS` (graceful quit, TERM, then KILL fallback);
+   dry-run never quits apps. Do not broaden the app/process list without review.
+6. `archive_old_emails.py --execute` quits Mail, deletes Envelope Index files, and requires
    the user to restart Mail afterwards.
 
 ## Operational notes (learned 2026-08-29)

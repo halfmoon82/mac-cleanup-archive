@@ -39,7 +39,7 @@ import time
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, NamedTuple, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import (AGE_DAYS, CFG, HOME, LARGE_FILE_THRESHOLD, NAS_MOUNT,
@@ -54,7 +54,6 @@ CACHE_DIRS = [
     HOME / "Library" / "Caches" / "com.apple.dt.Xcode",
     HOME / "Library" / "Caches" / "com.apple.Safari",
     HOME / "Library" / "Caches" / "com.apple.WebKit",
-    HOME / "Library" / "Caches" / "Google",
     HOME / "Library" / "Caches" / "com.google.Chrome",
     HOME / "Library" / "Caches" / "com.google.Chrome.canary",
     HOME / "Library" / "Caches" / "com.microsoft.VSCode",
@@ -85,6 +84,52 @@ APP_SUPPORT_CACHE_DIRS = [
     HOME / "Library" / "Application Support" / "Teams" / "Cache",
     HOME / "Library" / "Application Support" / "Zoom" / "Cache",
     HOME / "Library" / "Application Support" / "Spotify" / "PersistentCache",
+]
+
+class RuntimeCacheTarget(NamedTuple):
+    """A regenerable cache directory plus the apps/processes that may hold it open."""
+
+    path: Path
+    reason: str
+    apps: Tuple[str, ...] = ()
+    process_patterns: Tuple[str, ...] = ()
+
+
+# User-approved runtime cache coverage (2026-08-30): these are safe to rebuild,
+# but several are held open by running apps. Execute mode quits the associated
+# apps first; dry-run never quits anything.
+RUNTIME_CACHE_TARGETS: List[RuntimeCacheTarget] = [
+    RuntimeCacheTarget(
+        HOME / "Library" / "Caches" / "Google",
+        "Google/Chrome cache (regenerable)",
+        apps=("Google Chrome",),
+        process_patterns=("/Applications/Google Chrome.app",),
+    ),
+    RuntimeCacheTarget(
+        HOME / "Library" / "Caches" / "com.anthropic.claudefordesktop.ShipIt",
+        "Claude ShipIt update cache (regenerable)",
+        apps=("Claude",),
+        process_patterns=("/Applications/Claude.app",),
+    ),
+    RuntimeCacheTarget(
+        HOME / "Library" / "Caches" / "camoufox",
+        "Camoufox cached runtime (re-downloaded on next use)",
+        apps=("Camoufox",),
+        process_patterns=("Library/Caches/camoufox/Camoufox.app",),
+    ),
+    RuntimeCacheTarget(
+        HOME / ".cache" / "puppeteer",
+        "Puppeteer browser cache (regenerable)",
+        process_patterns=("/.cache/puppeteer/", "Google Chrome for Testing", "chrome-headless-shell"),
+    ),
+    RuntimeCacheTarget(
+        HOME / ".bun" / "install" / "cache",
+        "bun install cache (regenerable)",
+    ),
+    RuntimeCacheTarget(
+        HOME / "Library" / "Caches" / "Homebrew",
+        "Homebrew download cache (regenerable)",
+    ),
 ]
 
 MANAGED_CACHES: List[Tuple[str, List[str]]] = [
@@ -167,9 +212,6 @@ MODULE_DIRS: List[Tuple[str, int, str]] = [
     ("~/Library/Caches/Arc", TIER_FAST_DAYS, "Arc browser cache"),
     ("~/Library/Caches/CloudKit/company.thebrowser.Browser", TIER_FAST_DAYS, "Arc CloudKit cache"),
     ("~/Library/Caches/company.thebrowser.Browser", TIER_FAST_DAYS, "Arc browser cache"),
-    # bun 1.3+ `bun pm cache rm` requires a package.json in cwd, so the bun install
-    # cache is handled as an age-gated dir instead of a managed-cache command.
-    ("~/.bun/install/cache", TIER_FAST_DAYS, "bun install cache"),
     ("/private/var/folders", TIER_FAST_DAYS, "system temp (var/folders)"),
     ("~/.Trash", TIER_FAST_DAYS, "trash items"),
     ("/Volumes/*/.Trashes", TIER_FAST_DAYS, "external volume trash"),
@@ -452,6 +494,113 @@ def scan_app_support_caches(days: int = 30) -> List[Tuple[Path, str, int]]:
             continue
         out += parse_find_output(run_find([root], ["-atime", f"+{days}"]),
                                  f"app-support cache not accessed in {days} days")
+    return out
+
+
+def present_runtime_cache_targets() -> List[RuntimeCacheTarget]:
+    return [target for target in RUNTIME_CACHE_TARGETS if target.path.exists()]
+
+
+def _pids_matching(pattern: str) -> List[int]:
+    try:
+        r = subprocess.run(["pgrep", "-f", pattern], capture_output=True, text=True, timeout=10)
+    except Exception:
+        return []
+    if r.returncode not in (0, 1):
+        return []
+    current = {os.getpid(), os.getppid()}
+    pids: List[int] = []
+    for line in r.stdout.splitlines():
+        try:
+            pid = int(line.strip())
+        except ValueError:
+            continue
+        if pid not in current:
+            pids.append(pid)
+    return pids
+
+
+def _patterns_have_processes(patterns: Tuple[str, ...]) -> bool:
+    return any(_pids_matching(pattern) for pattern in patterns)
+
+
+def quit_runtime_cache_apps(targets: List[RuntimeCacheTarget], dry_run: bool,
+                            log_file: Optional[Path]) -> None:
+    """Quit apps that can hold runtime caches open.
+
+    Dry-run only reports what would happen. Execute mode first asks macOS apps to
+    quit gracefully, then uses TERM and finally KILL for the narrow process
+    patterns declared by the target. The patterns live in RUNTIME_CACHE_TARGETS so
+    broad names are not invented at call sites.
+    """
+    apps = sorted({app for target in targets for app in target.apps})
+    patterns = tuple(dict.fromkeys(pattern for target in targets for pattern in target.process_patterns))
+    if not apps and not patterns:
+        return
+    if dry_run:
+        if apps:
+            log(f"[DRY-RUN] Would quit cache-associated apps: {', '.join(apps)}", log_file)
+        if patterns:
+            log(f"[DRY-RUN] Would stop cache-associated processes matching: {', '.join(patterns)}", log_file)
+        return
+
+    running_apps = []
+    for target in targets:
+        if target.process_patterns and not _patterns_have_processes(target.process_patterns):
+            continue
+        running_apps.extend(target.apps)
+    for app in sorted(dict.fromkeys(running_apps)):
+        log(f"Quitting cache-associated app: {app}", log_file)
+        subprocess.run(["osascript", "-e", f'tell application "{app}" to quit'],
+                       capture_output=True, text=True, timeout=20)
+
+    deadline = time.time() + 10
+    while time.time() < deadline and _patterns_have_processes(patterns):
+        time.sleep(0.5)
+
+    for pattern in patterns:
+        pids = _pids_matching(pattern)
+        if not pids:
+            continue
+        log(f"Force stopping cache-associated processes matching {pattern}: {pids}", log_file)
+        subprocess.run(["pkill", "-TERM", "-f", pattern], capture_output=True, text=True, timeout=10)
+
+    deadline = time.time() + 5
+    while time.time() < deadline and _patterns_have_processes(patterns):
+        time.sleep(0.5)
+
+    for pattern in patterns:
+        pids = _pids_matching(pattern)
+        if not pids:
+            continue
+        log(f"Force killing cache-associated processes matching {pattern}: {pids}", log_file)
+        subprocess.run(["pkill", "-KILL", "-f", pattern], capture_output=True, text=True, timeout=10)
+
+
+def _iter_runtime_cache_files(root: Path) -> List[Path]:
+    """Return files and symlinks below an exact approved cache root.
+
+    Symlinks are returned as symlinks so unlinking them never follows to data
+    outside the cache root. Directory entries are left behind as empty dirs.
+    """
+    try:
+        if root.is_symlink() or root.is_file():
+            return [root]
+        if not root.is_dir():
+            return []
+        return [p for p in root.rglob("*") if p.is_symlink() or p.is_file()]
+    except Exception:
+        return []
+
+
+def scan_runtime_cache_files(targets: List[RuntimeCacheTarget]) -> List[Tuple[Path, str, int]]:
+    out: List[Tuple[Path, str, int]] = []
+    for target in targets:
+        for p in _iter_runtime_cache_files(target.path):
+            try:
+                out.append((p, target.reason, p.lstat().st_size))
+            except Exception:
+                pass
     return out
 
 
@@ -1203,7 +1352,9 @@ def delete_file(path: Path, dry_run: bool, log_file: Optional[Path]) -> bool:
     if dry_run:
         return True
     try:
-        if path.is_dir():
+        if path.is_symlink():
+            path.unlink()
+        elif path.is_dir():
             shutil.rmtree(path)
         else:
             path.unlink()
@@ -1297,6 +1448,10 @@ def main() -> None:
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--no-app-cache", action="store_true")
     parser.add_argument("--no-managed-cache", action="store_true")
+    parser.add_argument("--no-runtime-cache", action="store_true",
+                        help="Skip approved regenerable runtime cache directories")
+    parser.add_argument("--no-quit-cache-apps", action="store_true",
+                        help="Do not quit apps before runtime cache deletion")
     parser.add_argument("--no-logs", action="store_true")
     parser.add_argument("--no-other", action="store_true")
     parser.add_argument("--no-repos", action="store_true", help="Skip merged-repo archive+delete")
@@ -1331,6 +1486,17 @@ def main() -> None:
 
     if not args.no_managed_cache:
         clean_managed_caches(dry_run, log_file)
+    if not args.no_runtime_cache:
+        runtime_targets = present_runtime_cache_targets()
+        if runtime_targets:
+            if args.no_quit_cache_apps:
+                log("Runtime cache app quitting disabled by --no-quit-cache-apps", log_file)
+            else:
+                quit_runtime_cache_apps(runtime_targets, dry_run, log_file)
+            log("Scanning approved runtime cache directories...", log_file)
+            c = scan_runtime_cache_files(runtime_targets)
+            log(f"  {len(c)} runtime cache files to delete", log_file)
+            delete_candidates += c
     if not args.no_cache:
         log("Scanning cache files...", log_file)
         c = scan_cache_files(AGE_DAYS)

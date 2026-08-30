@@ -10,6 +10,9 @@ See [SKILL.md](SKILL.md) for the full documentation.
 
 - Age-gated cleanup tiers: 14d for regenerable caches/logs, 90d for
   rebuild-costly data (Gradle, NuGet, Conan, iOS .ipa archives)
+- Runtime-cache coverage for Chrome/Google, Claude ShipIt, Camoufox,
+  Puppeteer, bun install cache, and Homebrew downloads; execute mode can quit
+  the associated apps before deletion, while dry-run never quits anything
 - Managed caches via the tools themselves: npm, yarn, pip, brew, uv, pnpm,
   pod, go, gem, composer, conan, plus dangling-only `docker system prune -f`
 - HuggingFace interrupted-download residue (`*.incomplete` blobs only)
@@ -44,3 +47,5 @@ Per-machine settings (NAS mount, thresholds) live in
 3. Project roots, dotfiles, agent/tool runtime dependencies, and source files
    are protected automatically.
 4. Actions needing sudo are logged and skipped, never forced.
+5. Runtime-cache execute mode quits only the declared cache-associated apps;
+   use `--no-quit-cache-apps` for a special run that must leave apps alone.
