@@ -44,3 +44,10 @@ Per-machine settings (NAS mount, thresholds) live in
 3. Project roots, dotfiles, agent/tool runtime dependencies, and source files
    are protected automatically.
 4. Actions needing sudo are logged and skipped, never forced.
+
+Operational guidance: run targeted cache cleanup and managed-cache cleanup separately,
+review each dry-run, and re-measure after execution. Treat `/private/var/folders` and
+`~/Library/Caches/com.apple.python` as application-owned temporary workspaces: inspect
+exact stale subtrees, confirm no open-file holders, and prefer moving approved items to
+`~/.Trash` over recursive deletion. Root-owned npm entries should remain untouched unless
+ownership repair is explicitly authorized.

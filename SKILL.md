@@ -135,6 +135,29 @@ schema and setup on a new machine.
 5. `archive_old_emails.py --execute` quits Mail, deletes Envelope Index files, and requires
    the user to restart Mail afterwards.
 
+## Operational notes (learned 2026-09-04)
+
+- Run targeted cleanup before the full orchestrator. Use `cleanup_caches.py` for Chrome
+  on-device models; use `mac_cleanup.py` with all unrelated sections disabled when the
+  intent is only managed package caches. Review the dry-run output before each execute run.
+- A managed-cache command can partially succeed. Continue only after recording each
+  command's exit status and re-measuring the cache. In particular, npm may fail with
+  `EACCES` when root-owned entries exist under `~/.npm`; do not use sudo or change
+  ownership implicitly. Leave the remaining entries for a separately authorized repair.
+- Never recursively delete `/private/var/folders`. After the owning app exits, inspect the
+  exact leftover subtree, confirm no `lsof` holders, and move only that subtree to
+  `~/.Trash` so it remains recoverable. Do not use broad globs or delete the `T`, `C`, or
+  `X` roots.
+- Treat `~/Library/Caches/com.apple.python` as a sandbox/workspace, not a homogeneous
+  cache. Do not remove its `private/var` mapping. Only consider individual directories
+  under `private/tmp` that are older than the selected age threshold, not open, and
+  clearly tied to completed disposable work; move them to `~/.Trash` and verify the
+  source path is absent.
+- Reported size is not guaranteed reclaimable size: macOS privacy restrictions, open
+  files, sparse/dynamic directories, and application regeneration can change totals.
+- Enterprise/security logs under `/Library/Logs` require application or IT-managed
+  rotation; never remove them as ordinary cache cleanup.
+
 ## Operational notes (learned 2026-08-29)
 
 - `uv cache clean` cannot run while a long-lived consumer holds `~/.cache/uv/.lock` —
