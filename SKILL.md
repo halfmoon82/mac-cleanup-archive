@@ -149,7 +149,7 @@ schema and setup on a new machine.
   `~/.Trash` so it remains recoverable. Do not use broad globs or delete the `T`, `C`, or
   `X` roots.
 - Treat `~/Library/Caches/com.apple.python` as a sandbox/workspace, not a homogeneous
-  cache. Do not remove its `private/var` mapping. Only consider individual directories
+  cache. Do not remove its `private/var` mapping. In the default cleanup flow, only consider individual directories
   under `private/tmp` that are older than the selected age threshold, not open, and
   clearly tied to completed disposable work; move them to `~/.Trash` and verify the
   source path is absent.
@@ -157,6 +157,22 @@ schema and setup on a new machine.
   files, sparse/dynamic directories, and application regeneration can change totals.
 - Enterprise/security logs under `/Library/Logs` require application or IT-managed
   rotation; never remove them as ordinary cache cleanup.
+
+## Operational notes (learned 2026-11-10)
+
+- A timed-out or excluded subtree is **unknown**, not zero. Complete bounded, resumable
+  measurements before claiming a cache total; record skipped paths and permission errors.
+  Python's central bytecode cache can retain millions of `.pyc` files mirroring deleted
+  pip/build/test temp directories. Inspect non-`pip-*` mirrors too, not only pip caches.
+- Read-only review of Python `private/var` mirrors is allowed; default deletion remains
+  blocked. A narrow exception requires a reviewed, SHA-256-bound exact-child manifest
+  and explicit informed approval of permanent deletion without guaranteed recovery.
+  Never remove mapping ancestors, touch the real `/private/var`, or turn this exception
+  into an automatic orchestrator rule. See [Python bytecode review](references/python-bytecode-review.md).
+- For macOS/System Data diagnosis, compare APFS volume allocation, directory allocation,
+  live swap, and snapshots separately. VM may be at `/System/Volumes/VM`; `du` can
+  overcount APFS clones/shared blocks. A numerical match is not proof of Storage UI
+  category membership. Do not double-count swap or hand-delete system/VM/Preboot files.
 
 ## Operational notes (learned 2026-08-29)
 
